@@ -927,12 +927,13 @@ module Searchkick
               when :geo_shape
                 shape = op_value.except(:relation)
                 shape[:coordinates] = coordinate_array(shape[:coordinates]) if shape[:coordinates]
+                indexed_shape = op_value[:indexed_shape]
+                shape_data = indexed_shape.present? ? { indexed_shape: indexed_shape } : { shape: shape }
                 filters << {
                   geo_shape: {
                     field => {
                       relation: op_value[:relation] || "intersects",
-                      shape: shape
-                    }
+                    }.merge(shape_data)
                   }
                 }
               when :top_left
