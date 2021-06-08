@@ -188,14 +188,9 @@ module Searchkick
 
         records.clear_scroll
       else
-        params = {
-          scroll: options[:scroll],
-          scroll_id: scroll_id
-        }
-
         begin
           # TODO Active Support notifications for this scroll call
-          Searchkick::Results.new(@klass, Searchkick.client.scroll(params), @options)
+          Searchkick::Results.new(@klass, Searchkick.client.scroll(scroll: options[:scroll], body: {scroll_id: scroll_id}), @options)
         rescue Elasticsearch::Transport::Transport::Errors::NotFound => e
           if e.class.to_s =~ /NotFound/ && e.message =~ /search_context_missing_exception/i
             raise Searchkick::Error, "Scroll id has expired"
@@ -236,7 +231,7 @@ module Searchkick
                 index_alias = index.split("_")[0..-2].join("_")
                 Array((options[:index_mapping] || {})[index_alias])
               end
-            raise Searchkick::Error, "Unknown model for index: #{index}" unless models.any?
+            raise Searchkick::Error, "Unknown model for index: #{index}. Pass the `models` option to the search method." unless models.any?
             index_models[index] = models
           end
 

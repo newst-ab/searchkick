@@ -20,7 +20,7 @@ Plus:
 - autocomplete
 - “Did you mean” suggestions
 - supports many languages
-- works with ActiveRecord, Mongoid, and NoBrainer
+- works with Active Record, Mongoid, and NoBrainer
 
 Check out [Searchjoy](https://github.com/ankane/searchjoy) for analytics and [Autosuggest](https://github.com/ankane/autosuggest) for query suggestions
 
@@ -45,11 +45,11 @@ Check out [Searchjoy](https://github.com/ankane/searchjoy) for analytics and [Au
 
 ## Getting Started
 
-[Install Elasticsearch](https://www.elastic.co/downloads/elasticsearch). For Homebrew, use:
+Install [Elasticsearch](https://www.elastic.co/downloads/elasticsearch) or [OpenSearch](https://opensearch.org/downloads.html) (OpenSearch support is experimental). For Homebrew, use:
 
 ```sh
-brew install elasticsearch
-brew services start elasticsearch
+brew install elasticsearch # or opensearch
+brew services start elasticsearch # or opensearch
 ```
 
 Add this line to your application’s Gemfile:
@@ -58,7 +58,7 @@ Add this line to your application’s Gemfile:
 gem 'searchkick'
 ```
 
-The latest version works with Elasticsearch 6 and 7. For Elasticsearch 5, use version 3.1.3 and [this readme](https://github.com/ankane/searchkick/blob/v3.1.3/README.md).
+The latest version works with Elasticsearch 6 and 7 and OpenSearch 1. For Elasticsearch 5, use version 3.1.3 and [this readme](https://github.com/ankane/searchkick/blob/v3.1.3/README.md).
 
 Add searchkick to models you want to search.
 
@@ -311,7 +311,7 @@ class Product < ApplicationRecord
 end
 ```
 
-See the [list of stemmers](https://www.elastic.co/guide/en/elasticsearch/reference/current/analysis-stemmer-tokenfilter.html). A few languages require plugins:
+See the [list of languages](https://www.elastic.co/guide/en/elasticsearch/reference/current/analysis-stemmer-tokenfilter.html#analysis-stemmer-tokenfilter-configure-parms). A few languages require plugins:
 
 - `chinese` - [analysis-ik plugin](https://github.com/medcl/elasticsearch-analysis-ik)
 - `chinese2` - [analysis-smartcn plugin](https://www.elastic.co/guide/en/elasticsearch/plugins/7.4/analysis-smartcn.html)
@@ -321,6 +321,14 @@ See the [list of stemmers](https://www.elastic.co/guide/en/elasticsearch/referen
 - `polish` - [analysis-stempel plugin](https://www.elastic.co/guide/en/elasticsearch/plugins/7.4/analysis-stempel.html)
 - `ukrainian` - [analysis-ukrainian plugin](https://www.elastic.co/guide/en/elasticsearch/plugins/7.4/analysis-ukrainian.html)
 - `vietnamese` - [analysis-vietnamese plugin](https://github.com/duydo/elasticsearch-analysis-vietnamese)
+
+You can also use a Hunspell dictionary for stemming.
+
+```ruby
+class Product < ApplicationRecord
+  searchkick stemmer: {type: "hunspell", locale: "en_US"}
+end
+```
 
 Disable stemming with:
 
@@ -1204,10 +1212,16 @@ FactoryBot.create(:product, :some_trait, :reindex, some_attribute: "foo")
 
 ### GitHub Actions
 
-Check out [setup-elasticsearch](https://github.com/ankane/setup-elasticsearch) for an easy way to install Elasticsearch.
+Check out [setup-elasticsearch](https://github.com/ankane/setup-elasticsearch) for an easy way to install Elasticsearch:
 
 ```yml
     - uses: ankane/setup-elasticsearch@v1
+```
+
+And [setup-opensearch](https://github.com/ankane/setup-opensearch) for an easy way to install OpenSearch:
+
+```yml
+    - uses: ankane/setup-opensearch@v1
 ```
 
 ## Deployment
@@ -1469,7 +1483,7 @@ Product.search_index.promote(index_name, update_refresh_interval: true)
 
 ### Queuing
 
-Push ids of records needing reindexed to a queue and reindex in bulk for better performance. First, set up Redis in an initializer. We recommend using [connection_pool](https://github.com/mperham/connection_pool).
+Push ids of records needing reindexing to a queue and reindex in bulk for better performance. First, set up Redis in an initializer. We recommend using [connection_pool](https://github.com/mperham/connection_pool).
 
 ```ruby
 Searchkick.redis = ConnectionPool.new { Redis.new }
