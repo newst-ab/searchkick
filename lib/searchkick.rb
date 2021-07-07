@@ -45,7 +45,7 @@ module Searchkick
   end
   self.search_method_name = :search
   self.wordnet_path = "/var/lib/wn_s.pl"
-  self.timeout = 10
+  self.timeout = 250
   self.models = []
   self.client_options = {}
   self.queue_name = :searchkick
@@ -58,7 +58,7 @@ module Searchkick
       Elasticsearch::Client.new({
         url: ENV["ELASTICSEARCH_URL"],
         transport_options: {request: {timeout: timeout}, headers: {content_type: "application/json"}},
-        retry_on_failure: 2
+        retry_on_failure: 5
       }.deep_merge(client_options)) do |f|
         f.use Searchkick::Middleware
         f.request signer_middleware_key, signer_middleware_aws_params if aws_credentials
