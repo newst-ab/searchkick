@@ -34,6 +34,7 @@ module Searchkick
   class Error < StandardError; end
   class MissingIndexError < Error; end
   class UnsupportedVersionError < Error; end
+  # TODO switch to Error
   class InvalidQueryError < Elasticsearch::Transport::Transport::Errors::BadRequest; end
   class DangerousOperation < Error; end
   class ImportError < Error; end
@@ -56,7 +57,7 @@ module Searchkick
       require "typhoeus/adapters/faraday" if defined?(Typhoeus) && Gem::Version.new(Faraday::VERSION) < Gem::Version.new("0.14.0")
 
       Elasticsearch::Client.new({
-        url: ENV["ELASTICSEARCH_URL"],
+        url: ENV["ELASTICSEARCH_URL"] || ENV["OPENSEARCH_URL"],
         transport_options: {request: {timeout: timeout}, headers: {content_type: "application/json"}},
         retry_on_failure: 2
       }.deep_merge(client_options)) do |f|
@@ -277,6 +278,18 @@ module Searchkick
     elsif defined?(Mongoid::Threaded)
       !Mongoid::Threaded.current_scope(klass).nil?
     end
+  end
+
+  # private
+  def self.not_found_error?(e)
+    (defined?(Elasticsearch) && e.is_a?(Elasticsearch::Transport::Transport::Errors::NotFound)) ||
+    (defined?(OpenSearch) && e.is_a?(OpenSearch::Transport::Transport::Errors::NotFound))
+  end
+
+  # private
+  def self.transport_error?(e)
+    (defined?(Elasticsearch) && e.is_a?(Elasticsearch::Transport::Transport::Error)) ||
+    (defined?(OpenSearch) && e.is_a?(OpenSearch::Transport::Transport::Error))
   end
 end
 

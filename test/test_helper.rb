@@ -8,11 +8,21 @@ require "active_support/notifications"
 ENV["RACK_ENV"] = "test"
 
 # for reloadable synonyms
-ENV["ES_PATH"] ||= "#{ENV["HOME"]}/elasticsearch/#{ENV["ELASTICSEARCH_VERSION"]}" if ENV["TRAVIS"]
+if ENV["CI"]
+  ENV["ES_PATH"] ||= File.join(ENV["HOME"], Searchkick.opensearch? ? "opensearch" : "elasticsearch", Searchkick.server_version)
+end
 
 $logger = ActiveSupport::Logger.new(ENV["VERBOSE"] ? STDOUT : nil)
 
-Searchkick.client.transport.logger = $logger
+if defined?(OpenSearch)
+  Searchkick.client = OpenSearch::Client.new
+end
+
+if Searchkick.client.transport.respond_to?(:transport)
+  Searchkick.client.transport.transport.logger = $logger
+else
+  Searchkick.client.transport.logger = $logger
+end
 Searchkick.search_timeout = 5
 Searchkick.index_suffix = ENV["TEST_ENV_NUMBER"] # for parallel tests
 
@@ -112,6 +122,13 @@ class Minitest::Test
       misspellings: misspellings
     }
     assert_search(term, expected, options, klass)
+  end
+
+  def assert_warns(message)
+    _, stderr = capture_io do
+      yield
+    end
+    assert_match "[searchkick] WARNING: #{message}", stderr
   end
 
   def with_options(options, klass = default_model)

@@ -45,7 +45,7 @@ Check out [Searchjoy](https://github.com/ankane/searchjoy) for analytics and [Au
 
 ## Getting Started
 
-Install [Elasticsearch](https://www.elastic.co/downloads/elasticsearch) or [OpenSearch](https://opensearch.org/downloads.html) (OpenSearch support is experimental). For Homebrew, use:
+Install [Elasticsearch](https://www.elastic.co/downloads/elasticsearch) or [OpenSearch](https://opensearch.org/downloads.html). For Homebrew, use:
 
 ```sh
 brew install elasticsearch # or opensearch
@@ -103,19 +103,20 @@ Where
 
 ```ruby
 where: {
-  expires_at: {gt: Time.now},   # lt, gte, lte also available
-  orders_count: 1..10,          # equivalent to {gte: 1, lte: 10}
-  aisle_id: [25, 30],           # in
-  store_id: {not: 2},           # not
-  aisle_id: {not: [25, 30]},    # not in
-  user_ids: {all: [1, 3]},      # all elements in array
-  category: {like: "%frozen%"}, # like
-  category: /frozen .+/,        # regexp
-  category: {prefix: "frozen"}, # prefix
-  store_id: {exists: true},     # exists
+  expires_at: {gt: Time.now},    # lt, gte, lte also available
+  orders_count: 1..10,           # equivalent to {gte: 1, lte: 10}
+  aisle_id: [25, 30],            # in
+  store_id: {not: 2},            # not
+  aisle_id: {not: [25, 30]},     # not in
+  user_ids: {all: [1, 3]},       # all elements in array
+  category: {like: "%frozen%"},  # like
+  category: {ilike: "%frozen%"}, # ilike
+  category: /frozen .+/,         # regexp
+  category: {prefix: "frozen"},  # prefix
+  store_id: {exists: true},      # exists
   _or: [{in_stock: true}, {backordered: true}],
   _and: [{in_stock: true}, {backordered: true}],
-  _not: {store_id: 1}           # negate a condition
+  _not: {store_id: 1}            # negate a condition
 }
 ```
 
@@ -125,7 +126,7 @@ Order
 order: {_score: :desc} # most relevant first - default
 ```
 
-[All of these sort options are supported](https://www.elastic.co/guide/en/elasticsearch/reference/current/search-request-sort.html)
+[All of these sort options are supported](https://www.elastic.co/guide/en/elasticsearch/reference/current/sort-search-results.html)
 
 Limit / offset
 
@@ -139,7 +140,7 @@ Select
 select: [:name]
 ```
 
-[These source filtering options are supported](https://www.elastic.co/guide/en/elasticsearch/reference/current/search-request-body.html#request-body-search-source-filtering)
+[These source filtering options are supported](https://www.elastic.co/guide/en/elasticsearch/reference/current/search-fields.html#source-filtering)
 
 ### Results
 
@@ -374,9 +375,9 @@ search_synonyms: ["lightbulb => halogenlamp"]
 
 The above approach works well when your synonym list is static, but in practice, this is often not the case. When you analyze search conversions, you often want to add new synonyms without a full reindex.
 
-#### Elasticsearch 7.3+
+#### Elasticsearch 7.3+ or OpenSearch
 
-For Elasticsearch 7.3+, we recommend placing synonyms in a file on the Elasticsearch server (in the `config` directory). This allows you to reload synonyms without reindexing.
+For Elasticsearch 7.3+ or OpenSearch, we recommend placing synonyms in a file on the Elasticsearch or OpenSearch server (in the `config` directory). This allows you to reload synonyms without reindexing.
 
 ```txt
 pop, soda
@@ -386,16 +387,12 @@ burger, hamburger
 Then use:
 
 ```ruby
-search_synonyms: "synonyms.txt"
+class Product < ApplicationRecord
+  searchkick search_synonyms: "synonyms.txt"
+end
 ```
 
-Add [elasticsearch-xpack](https://github.com/elastic/elasticsearch-ruby/tree/master/elasticsearch-xpack) to your Gemfile:
-
-```ruby
-gem 'elasticsearch-xpack', '>= 7.8.0'
-```
-
-And use:
+And reload with:
 
 ```ruby
 Product.search_index.reload_synonyms
@@ -649,7 +646,7 @@ class Product < ApplicationRecord
   def search_data
     {
       name: name,
-      conversions: searches.group(:query).uniq.count(:user_id)
+      conversions: searches.group(:query).distinct.count(:user_id)
       # {"ice cream" => 234, "chocolate" => 67, "cream" => 2}
     }
   end
@@ -899,7 +896,7 @@ Additional options can be specified for each field:
 Band.search "cinema", fields: [:name], highlight: {fields: {name: {fragment_size: 200}}}
 ```
 
-You can find available highlight options in the [Elasticsearch reference](https://www.elastic.co/guide/en/elasticsearch/reference/current/search-request-highlighting.html#_highlighted_fragments).
+You can find available highlight options in the [Elasticsearch reference](https://www.elastic.co/guide/en/elasticsearch/reference/current/highlighting.html).
 
 ## Similar Items
 
@@ -950,7 +947,7 @@ Boost results by distance - closer results are boosted more
 Restaurant.search "noodles", boost_by_distance: {location: {origin: {lat: 37, lon: -122}}}
 ```
 
-Also supports [additional options](https://www.elastic.co/guide/en/elasticsearch/reference/current/query-dsl-function-score-query.html#_decay_functions)
+Also supports [additional options](https://www.elastic.co/guide/en/elasticsearch/reference/current/query-dsl-function-score-query.html#function-decay)
 
 ```ruby
 Restaurant.search "wings", boost_by_distance: {location: {origin: {lat: 37, lon: -122}, function: "linear", scale: "30mi", decay: 0.5}}
@@ -1230,7 +1227,7 @@ Searchkick uses `ENV["ELASTICSEARCH_URL"]` for the Elasticsearch server. This de
 
 - [Elastic Cloud](#elastic-cloud)
 - [Heroku](#heroku)
-- [Amazon Elasticsearch Service](#amazon-elasticsearch-service)
+- [Amazon OpenSearch Service](#amazon-opensearch-service)
 - [Self-Hosted and Other](#self-hosted-and-other)
 
 ### Elastic Cloud
@@ -1254,7 +1251,7 @@ Choose an add-on: [Bonsai](https://elements.heroku.com/addons/bonsai), [SearchBo
 For Bonsai:
 
 ```sh
-heroku addons:create bonsai
+heroku addons:create bonsai # use --engine=opensearch for OpenSearch
 heroku config:set ELASTICSEARCH_URL=`heroku config:get BONSAI_URL`
 ```
 
@@ -1290,7 +1287,7 @@ Then deploy and reindex:
 heroku run rake searchkick:reindex:all
 ```
 
-### Amazon Elasticsearch Service
+### Amazon OpenSearch Service
 
 Create an initializer `config/initializers/elasticsearch.rb` with:
 
@@ -1586,14 +1583,14 @@ class ReindexConversionsJob < ApplicationJob
     # get records that have a recent conversion
     recently_converted_ids =
       Searchjoy::Search.where("convertable_type = ? AND converted_at > ?", class_name, 1.day.ago)
-      .order(:convertable_id).uniq.pluck(:convertable_id)
+      .order(:convertable_id).distinct.pluck(:convertable_id)
 
     # split into groups
     recently_converted_ids.in_groups_of(1000, false) do |ids|
       # fetch conversions
       conversions =
         Searchjoy::Search.where(convertable_id: ids, convertable_type: class_name)
-        .group(:convertable_id, :query).uniq.count(:user_id)
+        .group(:convertable_id, :query).distinct.count(:user_id)
 
       # group conversions by record
       conversions_by_record = {}
@@ -1717,7 +1714,7 @@ Check out [this great post](https://www.tiagoamaro.com.br/2014/12/11/multi-tenan
 
 ## Scroll API
 
-Searchkick also supports the [scroll API](https://www.elastic.co/guide/en/elasticsearch/reference/current/search-request-scroll.html). Scrolling is not intended for real time user requests, but rather for processing large amounts of data.
+Searchkick also supports the [scroll API](https://www.elastic.co/guide/en/elasticsearch/reference/current/paginate-search-results.html#scroll-search-results). Scrolling is not intended for real time user requests, but rather for processing large amounts of data.
 
 ```ruby
 Product.search("*", scroll: "1m").scroll do |batch|
@@ -1845,7 +1842,7 @@ class Product < ApplicationRecord
   def search_data
     {
       name: name,
-      unique_user_conversions: searches.group(:query).uniq.count(:user_id),
+      unique_user_conversions: searches.group(:query).distinct.count(:user_id),
       # {"ice cream" => 234, "chocolate" => 67, "cream" => 2}
       total_conversions: searches.group(:query).count
       # {"ice cream" => 412, "chocolate" => 117, "cream" => 6}
@@ -1970,7 +1967,7 @@ products = Product.search("carrots", execute: false)
 products.each { ... } # search not executed until here
 ```
 
-Add [request parameters](https://www.elastic.co/guide/en/elasticsearch/reference/current/search-uri-request.html), like `search_type` and `query_cache`
+Add [request parameters](https://www.elastic.co/guide/en/elasticsearch/reference/current/search-search.html#search-search-api-query-params) like `search_type`
 
 ```ruby
 Product.search("carrots", request_params: {search_type: "dfs_query_then_fetch"})

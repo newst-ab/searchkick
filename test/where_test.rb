@@ -46,6 +46,11 @@ class WhereTest < Minitest::Test
       # use eval to prevent parse error
       assert_search "product", ["Product C", "Product D"], where: {store_id: eval("3..")}
     end
+    if Gem::Version.new(RUBY_VERSION) >= Gem::Version.new("2.7.0")
+      # use eval to prevent parse error
+      assert_search "product", ["Product A", "Product B"], where: {store_id: eval("..2")}
+      assert_search "product", ["Product A", "Product B"], where: {store_id: eval("...3")}
+    end
 
     # or
     assert_search "product", ["Product A", "Product B", "Product C"], where: {or: [[{in_stock: true}, {store_id: 3}]]}
@@ -89,7 +94,7 @@ class WhereTest < Minitest::Test
 
   def test_unknown_operator
     error = assert_raises RuntimeError do
-      assert_search "product", [], where: {store_id: {ilike: "%2%"}}
+      assert_search "product", [], where: {store_id: {contains: "%2%"}}
     end
     assert_includes error.message, "Unknown where operator"
   end
@@ -113,24 +118,41 @@ class WhereTest < Minitest::Test
     store_names ["abcde"]
     # regular expressions are always anchored right now
     # TODO change in future release
-    assert_search "*", [], where: {name: /abcd/}
-    assert_search "*", [], where: {name: /bcde/}
-    assert_search "*", ["abcde"], where: {name: /abcde/}
-    assert_search "*", ["abcde"], where: {name: /.*bcd.*/}
+    assert_warns "Regular expressions are always anchored in Elasticsearch" do
+      assert_search "*", [], where: {name: /abcd/}
+    end
+    assert_warns "Regular expressions are always anchored in Elasticsearch" do
+      assert_search "*", [], where: {name: /bcde/}
+    end
+    assert_warns "Regular expressions are always anchored in Elasticsearch" do
+      assert_search "*", ["abcde"], where: {name: /abcde/}
+    end
+    assert_warns "Regular expressions are always anchored in Elasticsearch" do
+      assert_search "*", ["abcde"], where: {name: /.*bcd.*/}
+    end
   end
 
   def test_regexp_anchored
     store_names ["abcde"]
     assert_search "*", ["abcde"], where: {name: /\Aabcde\z/}
-    assert_search "*", [], where: {name: /\Abcd/}
-    assert_search "*", [], where: {name: /bcd\z/}
+    assert_warns "Regular expressions are always anchored in Elasticsearch" do
+      assert_search "*", [], where: {name: /\Abcd/}
+    end
+    assert_warns "Regular expressions are always anchored in Elasticsearch" do
+      assert_search "*", [], where: {name: /bcd\z/}
+    end
   end
 
   def test_regexp_case
     store_names ["abcde"]
     assert_search "*", [], where: {name: /\AABCDE\z/}
-    # flags don't work
-    assert_search "*", [], where: {name: /\AABCDE\z/i}
+    unless case_insensitive_supported?
+      assert_warns "Case-insensitive flag does not work with Elasticsearch < 7.10" do
+        assert_search "*", [], where: {name: /\AABCDE\z/i}
+      end
+    else
+      assert_search "*", ["abcde"], where: {name: /\AABCDE\z/i}
+    end
   end
 
   def test_prefix
@@ -157,13 +179,25 @@ class WhereTest < Minitest::Test
   end
 
   def test_like_escape
-    store_names ["Product 100%", "Product B"]
+    store_names ["Product 100%", "Product 1000"]
     assert_search "product", ["Product 100%"], where: {name: {like: "% 100\\%"}}
   end
 
   def test_like_special_characters
-    store_names ["Product ABC\"", "Product B"]
-    assert_search "product", ["Product ABC\""], where: {name: {like: "%ABC\""}}
+    store_names [
+      "Product ABC", "Product.ABC", "Product?ABC", "Product+ABC", "Product*ABC", "Product|ABC",
+      "Product{ABC}", "Product[ABC]", "Product(ABC)",  "Product\"ABC\"", "Product\\ABC"
+    ]
+    assert_search "*", ["Product.ABC"], where: {name: {like: "Product.A%"}}
+    assert_search "*", ["Product?ABC"], where: {name: {like: "Product?A%"}}
+    assert_search "*", ["Product+ABC"], where: {name: {like: "Product+A%"}}
+    assert_search "*", ["Product*ABC"], where: {name: {like: "Product*A%"}}
+    assert_search "*", ["Product|ABC"], where: {name: {like: "Product|A%"}}
+    assert_search "*", ["Product{ABC}"], where: {name: {like: "%{ABC}"}}
+    assert_search "*", ["Product[ABC]"], where: {name: {like: "%[ABC]"}}
+    assert_search "*", ["Product(ABC)"], where: {name: {like: "%(ABC)"}}
+    assert_search "*", ["Product\"ABC\""], where: {name: {like: "%\"ABC\""}}
+    assert_search "*", ["Product\\ABC"], where: {name: {like: "Product\\A%"}}
   end
 
   def test_like_optional_operators
@@ -171,6 +205,46 @@ class WhereTest < Minitest::Test
     assert_search "product", ["Product A&B"], where: {name: {like: "%A&B"}}
     assert_search "product", ["Product <3"], where: {name: {like: "%<%"}}
     assert_search "product", ["Product @Home"], where: {name: {like: "%@Home%"}}
+  end
+
+  def test_ilike
+    if case_insensitive_supported?
+      store_names ["Product ABC", "Product DEF"]
+      assert_search "product", ["Product ABC"], where: {name: {ilike: "%abc%"}}
+      assert_search "product", ["Product ABC"], where: {name: {ilike: "%abc"}}
+      assert_search "product", [], where: {name: {ilike: "abc"}}
+      assert_search "product", [], where: {name: {ilike: "abc%"}}
+      assert_search "product", [], where: {name: {ilike: "abc%"}}
+      assert_search "product", ["Product ABC"], where: {name: {ilike: "Product_abc"}}
+    else
+      error = assert_raises(ArgumentError) do
+        Product.search("*", where: {name: {ilike: "%abc%"}})
+      end
+      assert_equal "ilike requires Elasticsearch 7.10+", error.message
+    end
+  end
+
+  def test_ilike_escape
+    skip unless case_insensitive_supported?
+
+    store_names ["Product 100%", "Product B"]
+    assert_search "product", ["Product 100%"], where: {name: {ilike: "% 100\\%"}}
+  end
+
+  def test_ilike_special_characters
+    skip unless case_insensitive_supported?
+
+    store_names ["Product ABC\"", "Product B"]
+    assert_search "product", ["Product ABC\""], where: {name: {ilike: "%abc\""}}
+  end
+
+  def test_ilike_optional_operators
+    skip unless case_insensitive_supported?
+
+    store_names ["Product A&B", "Product B", "Product <3", "Product @Home"]
+    assert_search "product", ["Product A&B"], where: {name: {ilike: "%a&b"}}
+    assert_search "product", ["Product <3"], where: {name: {ilike: "%<%"}}
+    assert_search "product", ["Product @Home"], where: {name: {ilike: "%@home%"}}
   end
 
   # def test_script
@@ -277,7 +351,19 @@ class WhereTest < Minitest::Test
       {lat: 27.122789, lon: -94.125535},
       {lat: 27.12278, lon: -125.496146}
     ]
-    assert_search "san", ["San Francisco", "San Antonio"], where: {location: {geo_polygon: {points: polygon}}}
+    _, stderr = capture_io do
+      assert_search "san", ["San Francisco", "San Antonio"], where: {location: {geo_polygon: {points: polygon}}}
+    end
+    unless Searchkick.server_below?("7.12.0")
+      assert_match "Deprecated field [geo_polygon] used", stderr
+    end
+
+    # Field [location] is not of type [geo_shape] but of type [geo_point] error for previous versions
+    unless Searchkick.server_below?("7.14.0")
+      polygon << polygon.first
+      # see test/geo_shape_test.rb for other geo_shape tests
+      assert_search "san", ["San Francisco", "San Antonio"], where: {location: {geo_shape: {type: "polygon", coordinates: [polygon]}}}
+    end
   end
 
   def test_top_left_bottom_right
@@ -342,5 +428,9 @@ class WhereTest < Minitest::Test
       {name: "Product A", details: {year: 2016}}
     ]
     assert_search "product", ["Product A"], where: {"details.year" => 2016}
+  end
+
+  def case_insensitive_supported?
+    !Searchkick.server_below?("7.10.0")
   end
 end

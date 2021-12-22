@@ -74,12 +74,11 @@ class IndexTest < Minitest::Test
   # TODO move
 
   def test_filterable
-    # skip for 5.0 since it throws
-    # Cannot search on field [alt_description] since it is not indexed.
     store [{name: "Product A", alt_description: "Hello"}]
-    assert_raises(Searchkick::InvalidQueryError) do
+    error = assert_raises(Searchkick::InvalidQueryError) do
       assert_search "*", [], where: {alt_description: "Hello"}
     end
+    assert_match "Cannot search on field [alt_description] since it is not indexed", error.message
   end
 
   def test_filterable_non_string
@@ -94,6 +93,7 @@ class IndexTest < Minitest::Test
     assert_search "product", ["Product A"], {}, Region
     assert_search "hello", ["Product A"], {fields: [:name, :text]}, Region
     assert_search "hello", ["Product A"], {}, Region
+    assert_search "*", ["Product A"], {where: {text: large_value}}, Region
   end
 
   def test_very_large_value
@@ -102,7 +102,25 @@ class IndexTest < Minitest::Test
     store [{name: "Product A", text: large_value}], Region
     assert_search "product", ["Product A"], {}, Region
     assert_search "hello", ["Product A"], {fields: [:name, :text]}, Region
-    # values that exceed ignore_above are not included in _all field :(
-    # assert_search "hello", ["Product A"], {}, Region
+    assert_search "hello", ["Product A"], {}, Region
+    # keyword not indexed
+    assert_search "*", [], {where: {text: large_value}}, Region
+  end
+
+  def test_bulk_import_raises_error
+    valid_dog = Product.create(name: "2016-01-02")
+    invalid_dog = Product.create(name: "Ol' One-Leg")
+    mapping = {
+      properties: {
+        name: {type: "date"}
+      }
+    }
+    index = Searchkick::Index.new "dogs", mappings: mapping, _type: "dog"
+    index.delete if index.exists?
+    index.create_index
+    index.store valid_dog
+    assert_raises(Searchkick::ImportError) do
+      index.bulk_index [valid_dog, invalid_dog]
+    end
   end
 end

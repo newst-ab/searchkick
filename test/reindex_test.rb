@@ -145,7 +145,9 @@ class ReindexTest < Minitest::Test
   def test_full_partial_async
     store_names ["Product A"]
     # warn for now
-    Product.reindex(:search_name, async: true)
+    assert_warns "unsupported keywords: :async" do
+      Product.reindex(:search_name, async: true)
+    end
   end
 
   def test_callbacks_false
@@ -196,6 +198,9 @@ class ReindexTest < Minitest::Test
     Product.searchkick_index.refresh
     assert_search "product", ["Product A", "Product C"], load: false
     assert_equal 0, reindex_queue.length
+
+    # ensure no error with empty queue
+    Searchkick::ProcessQueueJob.perform_later(class_name: "Product")
   end
 
   def test_transaction

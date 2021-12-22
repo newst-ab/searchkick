@@ -1,3 +1,36 @@
+## 4.6.3 (2021-11-19)
+
+- Added support for reloadable synonyms for OpenSearch
+- Added experimental support for `opensearch` gem
+- Removed `elasticsearch-xpack` dependency for reloadable synonyms
+
+## 4.6.2 (2021-11-15)
+
+- Added support for beginless ranges to `where` option
+- Fixed `like` and `ilike` with `+` character
+- Fixed warning about accessing system indices when no model or index specified
+
+## 4.6.1 (2021-09-25)
+
+- Added `ilike` operator for Elasticsearch 7.10+
+- Fixed missing methods with `multi_search`
+
+## 4.6.0 (2021-08-22)
+
+- Added support for case-insensitive regular expressions with Elasticsearch 7.10+
+- Added support for `OPENSEARCH_URL`
+- Fixed error with `debug` option
+
+## 4.5.2 (2021-08-05)
+
+- Fixed error with reindex queue
+- Fixed error with `model_name` method with multiple models
+- Fixed error with `debug` option with elasticsearch-ruby 7.14
+
+## 4.5.1 (2021-08-03)
+
+- Improved performance of reindex queue
+
 ## 4.5.0 (2021-06-07)
 
 - Added experimental support for OpenSearch

@@ -1,6 +1,6 @@
 source "https://rubygems.org"
 
-gemspec
+gemspec path: ".."
 
 gem "rake"
 gem "minitest", ">= 5"
@@ -13,4 +13,5 @@ gem "typhoeus"
 gem "redis"
 gem "connection_pool"
 gem "kaminari"
+gem "opensearch-ruby", github: "opensearch-project/opensearch-ruby"
 gem "parallel_tests"

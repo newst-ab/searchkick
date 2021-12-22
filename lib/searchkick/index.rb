@@ -84,7 +84,8 @@ module Searchkick
       old_indices =
         begin
           client.indices.get_alias(name: name).keys
-        rescue Elasticsearch::Transport::Transport::Errors::NotFound
+        rescue => e
+          raise e unless Searchkick.not_found_error?(e)
           {}
         end
       actions = old_indices.map { |old_name| {remove: {index: old_name, alias: name}} } + [{add: {index: new_name, alias: name}}]
@@ -109,7 +110,8 @@ module Searchkick
           else
             client.indices.get_aliases
           end
-        rescue Elasticsearch::Transport::Transport::Errors::NotFound
+        rescue => e
+          raise e unless Searchkick.not_found_error?(e)
           {}
         end
       indices = indices.select { |_k, v| v.empty? || v["aliases"].empty? } if unaliased
@@ -178,13 +180,15 @@ module Searchkick
     end
 
     def reload_synonyms
-      require "elasticsearch/xpack"
-      raise Error, "Requires Elasticsearch 7.3+" if Searchkick.server_below?("7.3.0")
-      raise Error, "Requires elasticsearch-xpack 7.8+" unless client.xpack.respond_to?(:indices)
-      begin
-        client.xpack.indices.reload_search_analyzers(index: name)
-      rescue Elasticsearch::Transport::Transport::Errors::MethodNotAllowed
-        raise Error, "Requires non-OSS version of Elasticsearch"
+      if Searchkick.opensearch?
+        client.transport.perform_request "POST", "_plugins/_refresh_search_analyzers/#{CGI.escape(name)}"
+      else
+        raise Error, "Requires Elasticsearch 7.3+" if Searchkick.server_below?("7.3.0")
+        begin
+          client.transport.perform_request("GET", "#{CGI.escape(name)}/_reload_search_analyzers")
+        rescue Elasticsearch::Transport::Transport::Errors::MethodNotAllowed
+          raise Error, "Requires non-OSS version of Elasticsearch"
+        end
       end
     end
 
@@ -361,9 +365,9 @@ module Searchkick
         index.refresh
         true
       end
-    rescue Elasticsearch::Transport::Transport::Errors::BadRequest => e
-      if e.message.include?("No handler for type [text]")
-        raise UnsupportedVersionError, "This version of Searchkick requires Elasticsearch 5 or greater"
+    rescue => e
+      if Searchkick.transport_error?(e) && e.message.include?("No handler for type [text]")
+        raise UnsupportedVersionError, "This version of Searchkick requires Elasticsearch 6 or greater"
       end
 
       raise e

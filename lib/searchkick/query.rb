@@ -1,5 +1,6 @@
 module Searchkick
   class Query
+    include Enumerable
     extend Forwardable
 
     @@metric_aggs = [:avg, :cardinality, :max, :min, :sum]
@@ -12,7 +13,8 @@ module Searchkick
       :took, :error, :model_name, :entry_name, :total_count, :total_entries,
       :current_page, :per_page, :limit_value, :padding, :total_pages, :num_pages,
       :offset_value, :offset, :previous_page, :prev_page, :next_page, :first_page?, :last_page?,
-      :out_of_range?, :hits, :response, :to_a, :first, :scroll
+      :out_of_range?, :hits, :response, :to_a, :first, :scroll, :highlights, :with_highlights,
+      :with_score, :misspellings?, :scroll_id, :clear_scroll, :missing_records, :with_hit
 
     def initialize(klass, term = "*", **options)
       unknown_keywords = options.keys - [:aggs, :block, :body, :body_options, :boost,
@@ -73,7 +75,8 @@ module Searchkick
         elsif searchkick_index
           searchkick_index.name
         else
-          "_all"
+          # fixes warning about accessing system indices
+          "*,-.*"
         end
 
       params = {
@@ -109,7 +112,12 @@ module Searchkick
       request_params = query.except(:index, :type, :body)
 
       # no easy way to tell which host the client will use
-      host = Searchkick.client.transport.hosts.first
+      host =
+        if Searchkick.client.transport.respond_to?(:transport)
+          Searchkick.client.transport.transport.hosts.first
+        else
+          Searchkick.client.transport.hosts.first
+        end
       credentials = host[:user] || host[:password] ? "#{host[:user]}:#{host[:password]}@" : nil
       params = ["pretty"]
       request_params.each do |k, v|
@@ -864,10 +872,11 @@ module Searchkick
       }
     end
 
-    # TODO id transformation for arrays
     def set_order(payload)
       order = options[:order].is_a?(Enumerable) ? options[:order] : {options[:order] => :asc}
       id_field = :_id
+      # TODO no longer map id to _id in Searchkick 5
+      # since sorting on _id is deprecated in Elasticsearch
       payload[:sort] = order.is_a?(Array) ? order : Hash[order.map { |k, v| [k.to_s == "id" ? id_field : k, v] }]
     end
 
@@ -896,12 +905,7 @@ module Searchkick
         else
           # expand ranges
           if value.is_a?(Range)
-            # infinite? added in Ruby 2.4
-            if value.end.nil? || (value.end.respond_to?(:infinite?) && value.end.infinite?)
-              value = {gte: value.first}
-            else
-              value = {gte: value.first, (value.exclude_end? ? :lt : :lte) => value.last}
-            end
+            value = expand_range(value)
           end
 
           value = {in: value} if value.is_a?(Array)
@@ -954,7 +958,7 @@ module Searchkick
                     }
                   }
                 }
-              when :like
+              when :like, :ilike
                 # based on Postgres
                 # https://www.postgresql.org/docs/current/functions-matching.html
                 # % matches zero or more characters
@@ -962,13 +966,22 @@ module Searchkick
                 # \ is escape character
                 # escape Lucene reserved characters
                 # https://www.elastic.co/guide/en/elasticsearch/reference/current/regexp-syntax.html#regexp-optional-operators
-                reserved = %w(. ? + * | { } [ ] ( ) " \\)
+                reserved = %w(\\ . ? + * | { } [ ] ( ) ")
                 regex = op_value.dup
                 reserved.each do |v|
-                  regex.gsub!(v, "\\" + v)
+                  regex.gsub!(v, "\\\\" + v)
                 end
                 regex = regex.gsub(/(?<!\\)%/, ".*").gsub(/(?<!\\)_/, ".").gsub("\\%", "%").gsub("\\_", "_")
-                filters << {regexp: {field => {value: regex, flags: "NONE"}}}
+
+                if op == :ilike
+                  if below710?
+                    raise ArgumentError, "ilike requires Elasticsearch 7.10+"
+                  else
+                    filters << {regexp: {field => {value: regex, flags: "NONE", case_insensitive: true}}}
+                  end
+                else
+                  filters << {regexp: {field => {value: regex, flags: "NONE"}}}
+                end
               when :prefix
                 filters << {prefix: {field => {value: op_value}}}
               when :regexp # support for regexp queries without using a regexp ruby object
@@ -1023,10 +1036,6 @@ module Searchkick
       elsif value.nil?
         {bool: {must_not: {exists: {field: field}}}}
       elsif value.is_a?(Regexp)
-        if value.casefold?
-          Searchkick.warn("Case-insensitive flag does not work with Elasticsearch")
-        end
-
         source = value.source
         unless source.start_with?("\\A") && source.end_with?("\\z")
           # https://www.elastic.co/guide/en/elasticsearch/reference/current/query-dsl-regexp-query.html
@@ -1048,7 +1057,14 @@ module Searchkick
           # source = "#{source}.*"
         end
 
-        {regexp: {field => {value: source, flags: "NONE"}}}
+        if below710?
+          if value.casefold?
+            Searchkick.warn("Case-insensitive flag does not work with Elasticsearch < 7.10")
+          end
+          {regexp: {field => {value: source, flags: "NONE"}}}
+        else
+          {regexp: {field => {value: source, flags: "NONE", case_insensitive: value.casefold?}}}
+        end
       else
         # TODO add this for other values
         if value.as_json.is_a?(Enumerable)
@@ -1119,6 +1135,17 @@ module Searchkick
       end
     end
 
+    def expand_range(range)
+      expanded = {}
+      expanded[:gte] = range.begin if range.begin
+
+      if range.end && !(range.end.respond_to?(:infinite?) && range.end.infinite?)
+        expanded[range.exclude_end? ? :lt : :lte] = range.end
+      end
+
+      expanded
+    end
+
     def base_field(k)
       k.sub(/\.(analyzed|word_start|word_middle|word_end|text_start|text_middle|text_end|exact)\z/, "")
     end
@@ -1145,6 +1172,10 @@ module Searchkick
 
     def below75?
       Searchkick.server_below?("7.5.0")
+    end
+
+    def below710?
+      Searchkick.server_below?("7.10.0")
     end
   end
 end
